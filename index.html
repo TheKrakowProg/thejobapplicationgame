@@ -137,4 +137,77 @@ initial=function(){return Object.assign(oldInitial(),{profile:null,category:"Rec
 if(s.profile===undefined)s.profile=null;
 if(!s.category)s.category="Recommended";
 
+
+/* Version 3.1 — editable CV and genuine job-match ranking */
+const skillSuggestions=["Customer service","Communication","Excel","Python","JavaScript","React","SQL","Sales","Cash handling","POS systems","Inventory","Forklift","Driving","Food safety","Hospitality","Cleaning","Caregiving","First aid","Administration","Bookkeeping","Teaching","Design","Marketing","Leadership","Problem solving","Time management","Security","Construction","Maintenance","Languages"];
+const careerSkillSets=[
+["customer service","communication","crm","problem solving","languages"],["javascript","python","sql","react","it support","testing"],["customer service","cash handling","pos systems","inventory","sales"],["inventory","forklift","packing","logistics","safety"],["hospitality","food safety","customer service","teamwork"],["administration","excel","communication","data entry"],["caregiving","first aid","communication","healthcare"],["construction","maintenance","safety","tools"],["driving","delivery","logistics","time management"],["cleaning","maintenance","safety","time management"],["marketing","design","communication","social media"],["bookkeeping","excel","finance","accounting"],["teaching","communication","childcare","languages"],["manufacturing","quality control","safety","machinery"],["sales","communication","crm","customer service"],["security","first aid","safety","communication"],["beauty","customer service","sales","hygiene"],["gardening","agriculture","maintenance","safety"],["administration","communication","public service","excel"],["communication","time management","teamwork","problem solving"]];
+function cvDefaults(){const p=s.profile||{};return {headline:"Open to work, closed to nonsense",summary:"Reliable candidate seeking a job that pays in actual currency.",experience:p.experience||"none",years:p.experience==="senior"?9:p.experience==="mid"?5:p.experience==="junior"?1:0,education:"high-school",industry:p.career||careerNames[0],skills:[],history:"",workType:"any",minimumSalary:0,atsBoost:0}}
+function ensureCV(){if(!s.cv||typeof s.cv!=="object"||Array.isArray(s.cv))s.cv=cvDefaults();const defaults=cvDefaults();for(const [k,v] of Object.entries(defaults))if(s.cv[k]===undefined)s.cv[k]=v;if(!Array.isArray(s.cv.skills))s.cv.skills=[];return s.cv}
+function scoreJob(j){const cv=ensureCV();const industryIndex=careerNames.indexOf(j.category);const wanted=careerSkillSets[Math.max(0,industryIndex)]||[];const skills=cv.skills.map(x=>String(x).toLowerCase());const matched=wanted.filter(w=>skills.some(k=>k.includes(w)||w.includes(k)));let score=26;
+ if(j.category===cv.industry)score+=29;
+ if(j.category===(s.profile||{}).career)score+=9;
+ score+=Math.min(26,matched.length*7);
+ score+=Math.min(12,Number(cv.years||0)*2);
+ if(cv.education==="degree"||cv.education==="postgrad")score+=4;
+ if(cv.workType==="remote"&&j.mode.startsWith("Remote"))score+=8;
+ if(cv.workType==="onsite"&&j.mode==="On-site")score+=6;
+ if(cv.workType==="hybrid"&&j.mode.startsWith("Hybrid"))score+=6;
+ const salary=Number((j.salary.match(/\d[\d,]*/)||["0"])[0].replace(/,/g,""));
+ if(cv.minimumSalary>0&&salary<cv.minimumSalary)score-=16;
+ score+=Math.min(10,Number(cv.atsBoost||0));
+ return {score:Math.max(5,Math.min(98,Math.round(score))),matched,wanted};
+}
+function cvScreen(){const cv=ensureCV(),p=s.profile||{};
+ const option=(value,label,current)=>'<option value="'+esc(value)+'"'+(value===current?' selected':'')+'>'+esc(label)+'</option>';
+ const fields='<div class="eyebrow">My CV · Editable candidate profile</div><h1>Make your résumé more employable 📄</h1><p>Your CV changes job-match scores and the order of recommended jobs. It will not guarantee that a recruiter behaves like a functioning adult.</p>'+
+ '<label class="muted" for="cvHeadline">Professional headline</label><input id="cvHeadline" class="search" maxlength="120" value="'+esc(cv.headline)+'">'+
+ '<label class="muted" for="cvSummary">Professional summary</label><textarea id="cvSummary" class="search" rows="3" maxlength="600" style="resize:vertical">'+esc(cv.summary)+'</textarea>'+
+ '<label class="muted" for="cvIndustry">Target career</label><select id="cvIndustry" class="search">'+careerNames.map(c=>option(c,c,cv.industry)).join("")+'</select>'+
+ '<label class="muted" for="cvYears">Years of experience</label><input id="cvYears" class="search" type="number" min="0" max="50" value="'+Number(cv.years||0)+'">'+
+ '<label class="muted" for="cvEducation">Education</label><select id="cvEducation" class="search">'+[["high-school","High school / secondary"],["vocational","Vocational / trade qualification"],["degree","University degree"],["postgrad","Postgraduate degree"],["self-taught","Self-taught / other"]].map(x=>option(x[0],x[1],cv.education)).join("")+'</select>'+
+ '<label class="muted" for="cvSkills">Skills (comma-separated)</label><textarea id="cvSkills" class="search" rows="3" maxlength="600" style="resize:vertical" placeholder="Customer service, Excel, communication">'+esc(cv.skills.join(", "))+'</textarea>'+
+ '<div class="muted">Ideas: '+skillSuggestions.slice(0,20).join(" · ")+'</div>'+
+ '<label class="muted" for="cvHistory">Previous jobs / experience</label><textarea id="cvHistory" class="search" rows="4" maxlength="1200" style="resize:vertical" placeholder="Retail assistant, volunteer, internships, personal projects…">'+esc(cv.history)+'</textarea>'+
+ '<label class="muted" for="cvWorkType">Preferred work arrangement</label><select id="cvWorkType" class="search">'+[["any","Anything"],["remote","Remote"],["hybrid","Hybrid"],["onsite","On-site"]].map(x=>option(x[0],x[1],cv.workType)).join("")+'</select>'+
+ '<label class="muted" for="cvSalary">Minimum annual salary ($, fictional game currency)</label><input id="cvSalary" class="search" type="number" min="0" max="500000" step="1000" value="'+Number(cv.minimumSalary||0)+'">'+
+ '<div class="actions"><button class="btn" id="saveCV">💾 Save CV & refresh matches</button><button class="btn secondary" id="autoCV">✨ ATS keyword makeover ($15, -5 sanity)</button></div>'+
+ '<div class="notice">CV data is saved locally and included when you export your game save. Match percentages are game mechanics, not actual hiring predictions.</div>';
+ return fields;
+}
+function cvMarket(){const cv=ensureCV(),cat=s.category||"Recommended",p=s.profile||{},query=String(s.search||"").toLowerCase();
+ let shown=allMarketJobs.filter(j=>{
+  const matches=cat==="All industries"||(cat==="Recommended"?(p.priority==="anything"||j.category===cv.industry||j.category===p.career||!j.category):j.category===cat);
+  return matches&&(j.title+" "+j.company+" "+(j.category||"")+" "+j.tags.join(" ")).toLowerCase().includes(query);
+ });
+ shown.sort((a,b)=>scoreJob(b).score-scoreJob(a).score);
+ const categories=["Recommended","All industries",...careerNames];
+ return '<div class="eyebrow">Personalized job market · CV-powered recommendations</div><h1>'+esc(p.name||"Candidate")+', the algorithm has opinions ✨</h1>'+
+ '<p class="muted">'+shown.length+' listings shown out of '+allMarketJobs.length+'. Match scores use your saved CV, industry and skills.</p>'+
+ '<input class="search" id="search" aria-label="Search job listings" placeholder="Search jobs, skills, companies…" value="'+esc(s.search||"")+'">'+
+ '<label class="muted" for="industryFilter">Industry</label><select class="search" id="industryFilter">'+categories.map(x=>'<option value="'+esc(x)+'"'+(cat===x?' selected':'')+'>'+esc(x)+'</option>').join("")+'</select>'+
+ '<div class="actions"><button class="btn secondary" id="openCV">📄 Edit CV to improve matches</button><button class="btn secondary" id="editCareer">✏️ Edit starting profile</button></div>'+
+ '<div id="jobresults">'+(shown.map(j=>{const m=scoreJob(j);return '<article class="listing" data-job="'+esc(j.id)+'" tabindex="0" role="button" aria-label="View '+esc(j.title)+'"><div class="eyebrow">'+esc(j.company)+' <span class="pill">'+m.score+'% CV match</span></div><h3>'+esc(j.title)+'</h3><div class="muted">'+esc(j.salary)+' · '+esc(j.mode)+'</div><div>'+j.tags.map(t=>'<span class="pill">'+esc(t)+'</span>').join("")+'</div><div class="muted bad">'+esc(j.age)+'</div></article>'}).join("")||'<p>No listings match your search. Even the imaginary market has limits.</p>')+'</div>';
+}
+function cvDetail(){const j=allMarketJobs.find(j=>j.id===s.selected)||allMarketJobs[0],m=scoreJob(j);
+ return '<button class="btn secondary" data-back="jobs">← Back to listings</button><div class="eyebrow" style="margin-top:20px">'+esc(j.company)+'</div><h1>'+esc(j.title)+'</h1><div class="notice">📄 Your CV match: <strong>'+m.score+'%</strong> · '+(m.matched.length?'Relevant skills: '+esc(m.matched.join(", ")):'Add relevant skills to your CV to improve your match.')+'</div><p>'+esc(j.salary)+'<br>'+esc(j.mode)+'</p><div>'+j.tags.map(t=>'<span class="pill">'+esc(t)+'</span>').join("")+'</div><div class="actions"><button class="btn" data-apply="'+esc(j.route)+'">Apply now →</button><button class="btn secondary" id="openCV">✏️ Improve CV</button><button class="btn secondary" data-savejob="'+esc(j.id)+'">☆ Save job</button></div><h2>Full job description</h2><div class="story">'+esc(j.desc)+'</div><p class="muted">Fictional job and fictional match score.</p>';
+}
+profile=cvScreen;jobList=cvMarket;detail=cvDetail;
+document.addEventListener("click",function(e){
+ const b=e.target.closest("button");if(!b)return;
+ if(b.id==="openCV"){s.tab="profile";s.scene=null;s.detail=false;save();render()}
+ if(b.id==="saveCV"){
+  const cv=ensureCV();
+  cv.headline=$("cvHeadline").value.trim();cv.summary=$("cvSummary").value.trim();
+  cv.industry=$("cvIndustry").value;cv.years=Math.max(0,Math.min(50,Number($("cvYears").value)||0));
+  cv.education=$("cvEducation").value;
+  cv.skills=[...new Set($("cvSkills").value.split(/[,;\n]/).map(x=>x.trim()).filter(Boolean))].slice(0,40);
+  cv.history=$("cvHistory").value.trim();cv.workType=$("cvWorkType").value;
+  cv.minimumSalary=Math.max(0,Math.min(500000,Number($("cvSalary").value)||0));
+  s.category="Recommended";s.search="";s.tab="jobs";s.scene=null;s.detail=false;
+  log("Updated CV. Your match scores have been recalculated.");save();render();
+ }
+ if(b.id==="autoCV"){const cv=ensureCV();if(s.cash<15){alert("Not enough cash for the ATS keyword makeover.");return}change({cash:-15,sanity:-5});cv.atsBoost=Math.min(10,Number(cv.atsBoost||0)+5);log("Paid $15 to impress an algorithm. It now recognizes the word synergy.");save();render()}
+},true);
+
 </script></body></html>
